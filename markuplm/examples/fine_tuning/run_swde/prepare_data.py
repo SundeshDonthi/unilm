@@ -272,62 +272,52 @@ def get_dom_tree(html, website):
     return dom_tree
 
 
-def load_html_and_groundtruth(vertical_to_load, website_to_load):
-    """
-    DONE READ!
-    """
-    # example is `book` and `abebooks`
-    """Loads and returns the html sting and ground turth data as a dictionary."""
+def load_html_and_groundtruth(vertical_to_load, website_to_load, input_groundtruth_path, input_pickle_path):
     all_data_dict = collections.defaultdict(dict)
     vertical_to_websites_map = constants.VERTICAL_WEBSITES
-    gt_path = FLAGS.input_groundtruth_path
+    gt_path = input_groundtruth_path
 
-    """
-    First build groudtruth dict
-    """
+    print(f"Ground truth path: {gt_path}", file=sys.stderr)
+    
     for v in vertical_to_websites_map:
-        if v != vertical_to_load: continue
-        for truthfile in os.listdir(os.path.join(gt_path, v)):
-            # For example, a groundtruth file name can be "auto-yahoo-price.txt".
+        if v != vertical_to_load:
+            continue
+        v_path = os.path.join(gt_path, v)
+        if not os.path.isdir(v_path):
+            print(f"Directory does not exist: {v_path}", file=sys.stderr)
+            continue
+        
+        for truthfile in os.listdir(v_path):
+            print(f"Processing ground truth file: {truthfile}", file=sys.stderr)
             vertical, website, field = truthfile.replace(".txt", "").split("-")
-            # like book , amazon , isbn_13
 
             if website != website_to_load:
                 continue
 
-            with open(os.path.join(gt_path, v, truthfile), "r") as gfo:
+            file_path = os.path.join(v_path, truthfile)
+            if not os.path.isfile(file_path):
+                print(f"File does not exist: {file_path}", file=sys.stderr)
+                continue
+
+            with open(file_path, "r") as gfo:
                 lines = gfo.readlines()
                 for line in lines[2:]:
-                    # Each line should contains more than 3 elements splitted by \t
-                    # which are: index, number of values, value1, value2, etc.
                     item = line.strip().split("\t")
-                    index = item[0]  # like 0123
-                    num_values = int(item[1])  # Can be 0 (when item[2] is "<NULL>").
+                    if len(item) < 3:
+                        print(f"Skipping malformed line: {line}", file=sys.stderr)
+                        continue
+                        
+                    index = item[0]
+                    num_values = int(item[1])
                     all_data_dict[index]["field-" + field] = dict(values=item[2:2 + num_values])
-            # {"0123":
-            #   {"field-engine":
-            #       {"values":["engine A","engine B"]},
-            #    "field-price":
-            #   }
-            # }
-    """
-
-    this is an example for book-abebooks-0000.htm
-    <-- all_data_dict["0000"] -->
-    {
-        'field-publication_date': {'values': ['2008']}, 
-        'field-author': {'values': ['Howard Zinn', 'Paul Buhle', 'Mike Konopacki']}, 
-        'field-title': {'values': ["A People's History of American Empire"]}, 
-        'field-publisher': {'values': ['Metropolitan Books']}, 
-        'field-isbn_13': {'values': ['9780805087444']}
-    }
-
-    """
+                    
+    print(f"Loaded ground truth data for vertical: {vertical_to_load}, website: {website_to_load}", file=sys.stderr)
 
     print("Reading the pickle of SWDE original dataset.....", file=sys.stderr)
-    with open(FLAGS.input_pickle_path, "rb") as gfo:
+    with open(input_pickle_path, "rb") as gfo:
         swde_html_data = pickle.load(gfo)
-    # {"vertical":'book',"website":'book-amazon(2000)',"path:'book/book-amazon(2000)/0000.htm',"html_str":xx} here
+        
+    print("Successfully read the pickle file", file=sys.stderr)
 
     for page in tqdm(swde_html_data, desc="Loading HTML data"):
         vertical = page["vertical"]
@@ -337,32 +327,18 @@ def load_html_and_groundtruth(vertical_to_load, website_to_load):
         if vertical != vertical_to_load or website != website_to_load:
             continue
 
-        path = page["path"]  # For example, auto/auto-aol(2000)/0000.htm
+        path = page["path"]
         html_str = page["html_str"]
-        _, _, index = path.split("/")  # website be like auto-aol(2000)
+        _, _, index = path.split("/")
         index = index.replace(".htm", "")
 
         all_data_dict[index]["html_str"] = html_str
         all_data_dict[index]["path"] = path
 
-    """
-        this is an example for book-abebooks-0000.htm
-        <-- all_data_dict["0000"] -->
-        {
-            'field-publication_date': {'values': ['2008']}, 
-            'field-author': {'values': ['Howard Zinn', 'Paul Buhle', 'Mike Konopacki']}, 
-            'field-title': {'values': ["A People's History of American Empire"]}, 
-            'field-publisher': {'values': ['Metropolitan Books']}, 
-            'field-isbn_13': {'values': ['9780805087444']},
-            'path': 'book/book-abebooks(2000)/0000.htm',
-            'html_str': omitted,
-        }
-    """
-
-    # all_data_dict here has all the pages
-    # however, only those in swde.pickle has the newly-appended 'path' and 'html_str'
+    print(f"Loaded HTML data for vertical: {vertical_to_load}, website: {website_to_load}", file=sys.stderr)
 
     return all_data_dict
+
 
 
 def get_field_xpaths(all_data_dict,
@@ -509,12 +485,12 @@ def assure_value_variable(all_data_dict, variable_nodes, fixed_nodes, n_pages):
             fixed_nodes.difference_update(xpaths)
 
 
-def generate_nodes_seq_and_write_to_file(compressed_args):
+def generate_nodes_seq_and_write_to_file(args):
     """Extracts all the xpaths and labels the nodes for all the pages."""
 
-    vertical, website = compressed_args
+    (vertical, website, input_groundtruth_path, input_pickle_path) = args
 
-    all_data_dict = load_html_and_groundtruth(vertical, website)
+    all_data_dict = load_html_and_groundtruth(vertical, website, input_groundtruth_path, input_pickle_path)
     get_field_xpaths(
         all_data_dict,
         vertical_to_process=vertical,
@@ -581,6 +557,7 @@ def generate_nodes_seq_and_write_to_file(compressed_args):
         pickle.dump(cleaned_features_for_this_website, f)
 
 
+
 def main(_):
     if not os.path.exists(FLAGS.output_data_path):
         os.makedirs(FLAGS.output_data_path)
@@ -592,13 +569,14 @@ def main(_):
     for vertical in verticals:
         websites = vertical_to_websites_map[vertical]
         for website in websites:
-            args_list.append((vertical, website))
+            args_list.append((vertical, website, FLAGS.input_groundtruth_path, FLAGS.input_pickle_path))
 
     num_cores = int(mp.cpu_count()/2)
 
     with mp.Pool(num_cores) as pool, tqdm(total=len(args_list), desc="Processing swde-data") as t:
         for res in pool.imap_unordered(generate_nodes_seq_and_write_to_file, args_list):
             t.update()
+
 
 
 if __name__ == "__main__":
