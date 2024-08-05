@@ -92,8 +92,18 @@ def pack_swde_data(swde_path, pack_path, cut_off):
     # Load the html data.
     with tqdm.tqdm(total=len(swde_data), file=sys.stdout) as progressbar:
         for page in swde_data:
-            with open(os.path.join(swde_path, page["path"])) as webpage:
-                page["html_str"] = webpage.read()
+            file_path = os.path.join(swde_path, page["path"])
+
+            # Handle encoding errors by using utf-8 and ignoring errors
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as webpage:
+                    page["html_str"] = webpage.read()
+            except FileNotFoundError:
+                print(f"File not found: {file_path}")
+                continue
+            except Exception as e:
+                print(f"Error reading {file_path}: {e}")
+                continue
 
             progressbar.set_description("processed")
             progressbar.update(1)
